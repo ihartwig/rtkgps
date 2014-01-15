@@ -4,14 +4,33 @@
 #include <avr/io.h>
 #include <util/delay.h>
 #include <avr/interrupt.h>
+#include <avr/pgmspace.h>
 
-static void usart_write(uint8_t data)
+static volatile uint8_t echo_char = 42;
+static volatile int cur_recv_signal = 0; // 12 bit value from the adc
+
+
+void usart_write(uint8_t data)
 {
     USARTD0.DATA = data;
     if(!(USARTD0.STATUS & USART_DREIF_bm)) {
         while(!(USARTD0.STATUS & USART_TXCIF_bm)); // wait for TX complete
     }
     USARTD0.STATUS |= USART_TXCIF_bm;  // clear TX interrupt flag
+}
+
+
+uint8_t read_cal_byte(uint8_t index) {
+  uint8_t result;
+
+  /* Load the NVM Command register to read the calibration row. */
+  NVM_CMD = NVM_CMD_READ_CALIB_ROW_gc;
+  result = pgm_read_byte(index);
+
+  /* Clean up NVM Command register. */
+  NVM_CMD = NVM_CMD_NO_OPERATION_gc;
+
+  return result;
 }
 
 
@@ -66,6 +85,23 @@ static inline void init_usart() {
   USARTD0.CTRLA = (USARTD0.CTRLA & ~USART_RXCINTLVL_gm) | USART_RXCINTLVL_LO_gc;
 }
 
+static inline void init_adc() {
+  // read low ADCA calibration byte from NVM signature row into register
+  // ADCA.CALL = ReadCalibrationByte( offsetof(NVM_PROD_SIGNATURES_t, ADCACAL0) );
+  // read high ADCA calibration byte from NVM signature row into register
+  // ADCA.CALH = ReadCalibrationByte( offsetof(NVM_PROD_SIGNATURES_t, ADCACAL1) );
+  // enable ADC
+  ADCA.CTRLA |= 0x1;
+  // 12 bit signed resolution and CONVMODE = 1
+  ADCA.CTRLB |= ADC_RESOLUTION_8BIT_gc | 0x10;
+  // scale to Vcc/2
+  ADCA.REFCTRL = ADC_REFSEL_INTVCC2_gc;
+  ADCA.PRESCALER = ADC_PRESCALER_DIV4_gc;
+  // differential without gain => input signal(A:2) - bias(A:3)
+  ADCA.CH0.CTRL = ADC_CH_GAIN_1X_gc | ADC_CH_INPUTMODE_DIFFWGAINL_gc;
+  ADCA.CH0.MUXCTRL = ADC_CH_MUXPOS_PIN2_gc | ADC_CH_MUXNEGL_PIN3_gc;
+}
+
 static inline void init_interrupts() {
   // Enable PMIC interrupt level low
   PMIC.CTRL |= PMIC_LOLVLEX_bm;
@@ -73,7 +109,6 @@ static inline void init_interrupts() {
   sei();
 }
 
-static volatile uint8_t echo_char = 42;
 
 int main( void )
 {
@@ -84,6 +119,8 @@ int main( void )
   // set PC7 as output
   PORTC.DIRSET = PIN7_bm;
 
+  init_adc();
+
   init_usart();
 
   init_interrupts();
@@ -93,16 +130,32 @@ int main( void )
   // blink LED on PA0 with 1 second on, 1 second off
   // write echo_char on USART on D7; defaults to 42(*)
   while (1) {
-    usart_write(echo_char);
-    PORTA.OUTSET = PIN0_bm;
-    _delay_ms( 1000 );
-    usart_write(echo_char);
-    PORTA.OUTCLR = PIN0_bm;
-    _delay_ms( 1000 );
+    // capture from ADC
+    ADCA.CTRLA |= 0x4;
+    while(!ADCA.CH0.INTFLAGS);                 // wait for conversion complete flag
+    ADCA.CH0.INTFLAGS = 0;
+
+    usart_write(ADCA.CH0RESL);
+    _delay_ms(100);
+    // usart_write(echo_char);
+    // PORTA.OUTSET = PIN0_bm;
+    // _delay_ms( 1000 );
+    // usart_write(echo_char);
+    // PORTA.OUTCLR = PIN0_bm;
+    // _delay_ms( 1000 );
   }
 }
+
 
 // USART RX receive interrupt handler
 ISR(USARTD0_RXC_vect) {
   echo_char = USARTD0.DATA;
 }
+
+
+// interrupt should be called after each DMA transaction is complete
+// ISR(ADCA_CH0_vect)
+// {
+//   cur_recv_signal = ADCA.CH0RES;
+//   echo_char = (char) (cur_recv_signal >> 4);
+// };
