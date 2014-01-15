@@ -102,9 +102,25 @@ static inline void init_adc() {
   ADCA.CH0.MUXCTRL = ADC_CH_MUXPOS_PIN2_gc | ADC_CH_MUXNEGL_PIN3_gc;
 }
 
+/**
+ * Setup Timer 4, Port C to be our system event timer. Generates compare
+ * interrupts for signal generation and demodulating.
+ */
+static inline void init_timer() {
+  // todo: figure out an appropriete clock scale
+  TCC4.CTRLA |= TC4_CLKSEL0_bm | TC4_CLKSEL1_bm | TC4_CLKSEL2_bm;
+  // set compare mode
+  TCC4.CTRLE |= TC4_CCBMODE0_bm | TC4_CCAMODE0_bm;
+  // configure as HIGH level interrupts
+  TCC4.INTCTRLB |= TC4_CCBINTLVL0_bm | TC4_CCBINTLVL1_bm |
+                   TC4_CCAINTLVL0_bm | TC4_CCAINTLVL1_bm;
+  TCC4.CCA = 3000;
+  TCC4.CCB = 0;
+}
+
 static inline void init_interrupts() {
   // Enable PMIC interrupt level low
-  PMIC.CTRL |= PMIC_LOLVLEX_bm;
+  PMIC.CTRL |= PMIC_LOLVLEX_bm | PMIC_MEDLVLEX_bm | PMIC_HILVLEX_bm;
   // enable interrupts
   sei();
 }
@@ -121,6 +137,8 @@ int main( void )
 
   init_adc();
 
+  init_timer();
+
   init_usart();
 
   init_interrupts();
@@ -130,12 +148,6 @@ int main( void )
   // blink LED on PA0 with 1 second on, 1 second off
   // write echo_char on USART on D7; defaults to 42(*)
   while (1) {
-    // capture from ADC
-    ADCA.CTRLA |= 0x4;
-    while(!ADCA.CH0.INTFLAGS);                 // wait for conversion complete flag
-    ADCA.CH0.INTFLAGS = 0;
-
-    usart_write(ADCA.CH0RESL);
     _delay_ms(100);
     // usart_write(echo_char);
     // PORTA.OUTSET = PIN0_bm;
@@ -150,6 +162,24 @@ int main( void )
 // USART RX receive interrupt handler
 ISR(USARTD0_RXC_vect) {
   echo_char = USARTD0.DATA;
+}
+
+
+ISR(TCC4_CCA_vect) {
+  // set next time
+  TCC4.CCA += 5000;
+
+  // capture from ADC
+  ADCA.CTRLA |= 0x4;
+  while(!ADCA.CH0.INTFLAGS);                 // wait for conversion complete flag
+  ADCA.CH0.INTFLAGS = 0;
+
+  usart_write(ADCA.CH0RESL);
+}
+
+
+ISR(TCC4_CCB_vect) {
+
 }
 
 
