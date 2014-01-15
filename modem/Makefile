@@ -61,7 +61,7 @@ FORMAT = ihex
 
 
 # Target file name (without extension).
-TARGET = blink
+TARGET = modem
 
 
 # Object files directory
