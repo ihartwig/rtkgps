@@ -97,9 +97,9 @@ static inline void init_adc() {
   // scale to Vcc/2
   ADCA.REFCTRL = ADC_REFSEL_INTVCC2_gc;
   ADCA.PRESCALER = ADC_PRESCALER_DIV4_gc;
-  // differential without gain => input signal(A:2) - bias(A:3)
+  // differential without gain => input signal(A:1) - bias(A:0)
   ADCA.CH0.CTRL = ADC_CH_GAIN_1X_gc | ADC_CH_INPUTMODE_DIFFWGAINL_gc;
-  ADCA.CH0.MUXCTRL = ADC_CH_MUXPOS_PIN2_gc | ADC_CH_MUXNEGL_PIN3_gc;
+  ADCA.CH0.MUXCTRL = ADC_CH_MUXPOS_PIN1_gc | ADC_CH_MUXNEGL_PIN0_gc;
 }
 
 /**
