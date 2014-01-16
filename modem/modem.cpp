@@ -9,6 +9,8 @@
 static volatile uint8_t echo_char = 42;
 static volatile int cur_recv_signal = 0; // 12 bit value from the adc
 
+static const uint16_t DAC_table[] = {0x0000, 0x0800, 0x0800, 0x0000};
+static volatile size_t DAC_table_i = 0;
 
 void usart_write(uint8_t data)
 {
@@ -114,8 +116,17 @@ static inline void init_timer() {
   // configure as HIGH level interrupts
   TCC4.INTCTRLB |= TC4_CCBINTLVL0_bm | TC4_CCBINTLVL1_bm |
                    TC4_CCAINTLVL0_bm | TC4_CCAINTLVL1_bm;
-  TCC4.CCA = 3000;
-  TCC4.CCB = 0;
+  TCC4.CCA = 5000;
+  TCC4.CCB = 6000;
+}
+
+static inline void init_dac() {
+  PORTA.DIRSET = PIN2_bm;
+  // enable output 0 (PA2) and the DAC
+  DACA.CTRLA |= DAC_CH0EN_bm | DAC_ENABLE_bm;
+  // channel select implicitly set for CH0 single operation
+  // set AVcc as ref
+  DACA.CTRLC |= DAC_REFSEL0_bm;
 }
 
 static inline void init_interrupts() {
@@ -139,14 +150,18 @@ int main( void )
 
   init_timer();
 
+  init_dac();
+
   init_usart();
 
   init_interrupts();
 
   // set PA0 as output
-  PORTA.DIRSET = PIN0_bm;
+  // PORTA.DIRSET = PIN0_bm;
   // blink LED on PA0 with 1 second on, 1 second off
   // write echo_char on USART on D7; defaults to 42(*)
+
+  usart_write((char) 0x42);
   while (1) {
     _delay_ms(100);
     // usart_write(echo_char);
@@ -174,18 +189,16 @@ ISR(TCC4_CCA_vect) {
   while(!ADCA.CH0.INTFLAGS);                 // wait for conversion complete flag
   ADCA.CH0.INTFLAGS = 0;
 
-  usart_write(ADCA.CH0RESL);
+  // usart_write(ADCA.CH0RESL);
 }
 
 
 ISR(TCC4_CCB_vect) {
+  // set next time
+  TCC4.CCA += 6000;
 
+  // write some DAC output
+  DACA.CH0DATA = DAC_table[DAC_table_i];
+  // and update increment
+  DAC_table_i = (DAC_table_i + 1) % 4;
 }
-
-
-// interrupt should be called after each DMA transaction is complete
-// ISR(ADCA_CH0_vect)
-// {
-//   cur_recv_signal = ADCA.CH0RES;
-//   echo_char = (char) (cur_recv_signal >> 4);
-// };
