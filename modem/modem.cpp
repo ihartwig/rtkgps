@@ -216,7 +216,11 @@ ISR(TCC4_CCA_vect) {
 
 ISR(TCC4_CCB_vect) {
   // set next time
-  TCC4.CCB += 824; //TICKS_1200HZ_BY_32;
+  if(cur_tone == TONE_2200HZ) {
+    TCC4.CCB += TICKS_2200HZ_BY_32;
+  } else {
+    TCC4.CCB += TICKS_1200HZ_BY_32;
+  }
 
   // write some DAC output
   DACA.CH0DATA = sine_table[sine_table_i];
