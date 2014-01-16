@@ -1,0 +1,740 @@
+   1               		.file	"waveform.c"
+   2               	__SP_H__ = 0x3e
+   3               	__SP_L__ = 0x3d
+   4               	__SREG__ = 0x3f
+   5               	__CCP__ = 0x34
+   6               	__tmp_reg__ = 0
+   7               	__zero_reg__ = 1
+   8               		.text
+   9               	.Ltext0:
+  10               		.cfi_sections	.debug_frame
+  11               	.global	__floatsisf
+  12               	.global	__divsf3
+  13               	.global	__mulsf3
+  14               	.global	__addsf3
+  15               	.global	__fixsfsi
+  16               		.section	.text.LoadSineWave,"ax",@progbits
+  17               	.global	LoadSineWave
+  19               	LoadSineWave:
+  20               	.LFB8:
+  21               		.file 1 "waveform.c"
+   1:waveform.c    **** #include <stdio.h>
+   2:waveform.c    **** #include <avr/io.h>
+   3:waveform.c    **** #define F_CPU 32000000UL
+   4:waveform.c    **** #include <util/delay.h>
+   5:waveform.c    **** #include <math.h>
+   6:waveform.c    **** 
+   7:waveform.c    **** void GenerateArbWave12(int *data, int len, unsigned long int freq);
+   8:waveform.c    **** void SetWaveFreq(unsigned long int freq);
+   9:waveform.c    **** void LoadSineWave(int len);
+  10:waveform.c    **** void Config32MHzClock(void);
+  11:waveform.c    **** 
+  12:waveform.c    **** volatile int data12[100];
+  13:waveform.c    **** volatile int gWaveNumSamp=50;
+  14:waveform.c    **** 
+  15:waveform.c    **** int main(void)
+  16:waveform.c    **** {
+  17:waveform.c    ****   // int Reading;
+  18:waveform.c    **** 
+  19:waveform.c    ****   Config32MHzClock();
+  20:waveform.c    **** 
+  21:waveform.c    ****   CLK.PSCTRL = 0x00; // no division on peripheral clock
+  22:waveform.c    **** 
+  23:waveform.c    ****   // enable clock out on port PC7
+  24:waveform.c    ****   PORTCFG.CLKOUT = (PORTCFG.CLKOUT & ~PORTCFG_CLKOUTSEL_gm) | PORTCFG_CLKOUT_PC7_gc;
+  25:waveform.c    ****   // set PC7 as output
+  26:waveform.c    ****   PORTC.DIRSET = PIN7_bm;
+  27:waveform.c    ****   TCC4.CTRLA = 4;
+  28:waveform.c    **** 
+  29:waveform.c    **** // setup DAC output on PORTA:2 as GND reference
+  30:waveform.c    ****   PORTA.DIRSET = PIN2_bm;
+  31:waveform.c    ****   PORTA.OUT &= 0xFB;
+  32:waveform.c    **** 
+  33:waveform.c    **** // setup ADC input on PORTA:0-3 (0=hi, 1=hi, 2=samp, 3=gnd)
+  34:waveform.c    **** // and power PORTA:1 to create voltage divider
+  35:waveform.c    ****   // PORTA.DIR = 0xB;
+  36:waveform.c    ****   // PORTA.OUT = 0x3;
+  37:waveform.c    **** 
+  38:waveform.c    **** // setup adc for single ended one shot mode
+  39:waveform.c    ****   // ADCA.CTRLA |= 0x1;       // enable adc
+  40:waveform.c    ****   // ADCA.CTRLB = 0x4;        // set 8 bit conversion
+  41:waveform.c    ****   // ADCA.CH0.CTRL = 0x1;     // single ended
+  42:waveform.c    ****   // ADCA.CH0.MUXCTRL = 0x10; // PORTA:2
+  43:waveform.c    ****   // ADCA.REFCTRL = 0x20;     // reference is PORTA:0
+  44:waveform.c    ****   // ADCA.PRESCALER = 0x5;    // peripheral clk/128
+  45:waveform.c    **** 
+  46:waveform.c    ****   LoadSineWave(gWaveNumSamp);
+  47:waveform.c    **** 
+  48:waveform.c    ****   // startup in 10kHz
+  49:waveform.c    ****   GenerateArbWave12(data12,gWaveNumSamp*2,10000);
+  50:waveform.c    **** 
+  51:waveform.c    ****   while(1)
+  52:waveform.c    ****   {
+  53:waveform.c    ****   // read adc to determine waveform freq
+  54:waveform.c    ****  //    ADCA.CTRLA |= 0x4;               // start conversion ch0
+  55:waveform.c    ****  //    while(!ADCA.CH0.INTFLAGS);       // wait for conversion complete flag
+  56:waveform.c    ****  //    ADCA.CH0.INTFLAGS = 0;           // clear int flags  
+  57:waveform.c    **** 	// Reading = ADCA.CH0RESL;          // read 8 bit value from POT
+  58:waveform.c    ****  //    SetWaveFreq((Reading*Reading)+1); // set freq
+  59:waveform.c    ****     _delay_ms(100); 
+  60:waveform.c    ****   };
+  61:waveform.c    ****   
+  62:waveform.c    **** };
+  63:waveform.c    **** 
+  64:waveform.c    **** void LoadSineWave(int len)
+  65:waveform.c    **** {
+  22               		.loc 1 65 0
+  23               		.cfi_startproc
+  24               	.LVL0:
+  25 0000 8F92      		push r8
+  26               	.LCFI0:
+  27               		.cfi_def_cfa_offset 3
+  28               		.cfi_offset 8, -2
+  29 0002 9F92      		push r9
+  30               	.LCFI1:
+  31               		.cfi_def_cfa_offset 4
+  32               		.cfi_offset 9, -3
+  33 0004 AF92      		push r10
+  34               	.LCFI2:
+  35               		.cfi_def_cfa_offset 5
+  36               		.cfi_offset 10, -4
+  37 0006 BF92      		push r11
+  38               	.LCFI3:
+  39               		.cfi_def_cfa_offset 6
+  40               		.cfi_offset 11, -5
+  41 0008 CF92      		push r12
+  42               	.LCFI4:
+  43               		.cfi_def_cfa_offset 7
+  44               		.cfi_offset 12, -6
+  45 000a DF92      		push r13
+  46               	.LCFI5:
+  47               		.cfi_def_cfa_offset 8
+  48               		.cfi_offset 13, -7
+  49 000c EF92      		push r14
+  50               	.LCFI6:
+  51               		.cfi_def_cfa_offset 9
+  52               		.cfi_offset 14, -8
+  53 000e FF92      		push r15
+  54               	.LCFI7:
+  55               		.cfi_def_cfa_offset 10
+  56               		.cfi_offset 15, -9
+  57 0010 0F93      		push r16
+  58               	.LCFI8:
+  59               		.cfi_def_cfa_offset 11
+  60               		.cfi_offset 16, -10
+  61 0012 1F93      		push r17
+  62               	.LCFI9:
+  63               		.cfi_def_cfa_offset 12
+  64               		.cfi_offset 17, -11
+  65 0014 CF93      		push r28
+  66               	.LCFI10:
+  67               		.cfi_def_cfa_offset 13
+  68               		.cfi_offset 28, -12
+  69 0016 DF93      		push r29
+  70               	.LCFI11:
+  71               		.cfi_def_cfa_offset 14
+  72               		.cfi_offset 29, -13
+  73               	/* prologue: function */
+  74               	/* frame size = 0 */
+  75               	/* stack size = 12 */
+  76               	.L__stack_usage = 12
+  77 0018 8C01      		movw r16,r24
+  78               	.LVL1:
+  66:waveform.c    **** int i;
+  67:waveform.c    **** 
+  68:waveform.c    ****   for(i=0;i<len;i++)
+  79               		.loc 1 68 0
+  80 001a C0E0      		ldi r28,0
+  81 001c D0E0      		ldi r29,0
+  69:waveform.c    ****   {
+  70:waveform.c    ****     data12[i]=((sin((2.0/(float)len)*(float)i*M_PI)*0.5 + 0.5)*4095);
+  82               		.loc 1 70 0
+  83 001e 6C01      		movw r12,r24
+  84 0020 EE24      		clr r14
+  85 0022 D7FC      		sbrc r13,7
+  86 0024 E094      		com r14
+  87 0026 FE2C      		mov r15,r14
+  88               	.LVL2:
+  89               	.L2:
+  68:waveform.c    ****   for(i=0;i<len;i++)
+  90               		.loc 1 68 0 discriminator 1
+  91 0028 C017      		cp r28,r16
+  92 002a D107      		cpc r29,r17
+  93 002c 04F0      		brlt .+2
+  94 002e 00C0      		rjmp .L5
+  95               		.loc 1 70 0 discriminator 2
+  96 0030 C701      		movw r24,r14
+  97 0032 B601      		movw r22,r12
+  98 0034 0E94 0000 		call __floatsisf
+  99               	.LVL3:
+ 100 0038 9B01      		movw r18,r22
+ 101 003a AC01      		movw r20,r24
+ 102 003c 60E0      		ldi r22,0
+ 103 003e 70E0      		ldi r23,0
+ 104 0040 80E0      		ldi r24,0
+ 105 0042 90E4      		ldi r25,lo8(64)
+ 106 0044 0E94 0000 		call __divsf3
+ 107               	.LVL4:
+ 108 0048 4B01      		movw r8,r22
+ 109 004a 5C01      		movw r10,r24
+ 110 004c BE01      		movw r22,r28
+ 111 004e 8827      		clr r24
+ 112 0050 77FD      		sbrc r23,7
+ 113 0052 8095      		com r24
+ 114 0054 982F      		mov r25,r24
+ 115 0056 0E94 0000 		call __floatsisf
+ 116               	.LVL5:
+ 117 005a 9B01      		movw r18,r22
+ 118 005c AC01      		movw r20,r24
+ 119 005e C501      		movw r24,r10
+ 120 0060 B401      		movw r22,r8
+ 121 0062 0E94 0000 		call __mulsf3
+ 122               	.LVL6:
+ 123 0066 2BED      		ldi r18,lo8(-37)
+ 124 0068 3FE0      		ldi r19,lo8(15)
+ 125 006a 49E4      		ldi r20,lo8(73)
+ 126 006c 50E4      		ldi r21,lo8(64)
+ 127 006e 0E94 0000 		call __mulsf3
+ 128               	.LVL7:
+ 129 0072 0E94 0000 		call sin
+ 130               	.LVL8:
+ 131 0076 20E0      		ldi r18,0
+ 132 0078 30E0      		ldi r19,0
+ 133 007a 40E0      		ldi r20,0
+ 134 007c 5FE3      		ldi r21,lo8(63)
+ 135 007e 0E94 0000 		call __mulsf3
+ 136               	.LVL9:
+ 137 0082 20E0      		ldi r18,0
+ 138 0084 30E0      		ldi r19,0
+ 139 0086 40E0      		ldi r20,0
+ 140 0088 5FE3      		ldi r21,lo8(63)
+ 141 008a 0E94 0000 		call __addsf3
+ 142               	.LVL10:
+ 143 008e 20E0      		ldi r18,0
+ 144 0090 30EF      		ldi r19,lo8(-16)
+ 145 0092 4FE7      		ldi r20,lo8(127)
+ 146 0094 55E4      		ldi r21,lo8(69)
+ 147 0096 0E94 0000 		call __mulsf3
+ 148               	.LVL11:
+ 149 009a 0E94 0000 		call __fixsfsi
+ 150               	.LVL12:
+ 151 009e FE01      		movw r30,r28
+ 152 00a0 EE0F      		lsl r30
+ 153 00a2 FF1F      		rol r31
+ 154 00a4 E050      		subi r30,lo8(-(data12))
+ 155 00a6 F040      		sbci r31,hi8(-(data12))
+ 156 00a8 6083      		st Z,r22
+ 157 00aa 7183      		std Z+1,r23
+  68:waveform.c    ****   for(i=0;i<len;i++)
+ 158               		.loc 1 68 0 discriminator 2
+ 159 00ac 2196      		adiw r28,1
+ 160               	.LVL13:
+ 161 00ae 00C0      		rjmp .L2
+ 162               	.L5:
+ 163               	/* epilogue start */
+  71:waveform.c    ****   };
+  72:waveform.c    **** 
+  73:waveform.c    **** };
+ 164               		.loc 1 73 0
+ 165 00b0 DF91      		pop r29
+ 166 00b2 CF91      		pop r28
+ 167               	.LVL14:
+ 168 00b4 1F91      		pop r17
+ 169 00b6 0F91      		pop r16
+ 170               	.LVL15:
+ 171 00b8 FF90      		pop r15
+ 172 00ba EF90      		pop r14
+ 173 00bc DF90      		pop r13
+ 174 00be CF90      		pop r12
+ 175               	.LVL16:
+ 176 00c0 BF90      		pop r11
+ 177 00c2 AF90      		pop r10
+ 178 00c4 9F90      		pop r9
+ 179 00c6 8F90      		pop r8
+ 180 00c8 0895      		ret
+ 181               		.cfi_endproc
+ 182               	.LFE8:
+ 184               		.section	.text.GenerateArbWave12,"ax",@progbits
+ 185               	.global	GenerateArbWave12
+ 187               	GenerateArbWave12:
+ 188               	.LFB9:
+  74:waveform.c    **** 
+  75:waveform.c    **** // void SetWaveFreq(unsigned long int freq)
+  76:waveform.c    **** // {
+  77:waveform.c    **** //     TCD5.PER = F_CPU/freq/gWaveNumSamp/4;
+  78:waveform.c    **** // };
+  79:waveform.c    **** 
+  80:waveform.c    **** void GenerateArbWave12(int *data, int len, unsigned long int freq)
+  81:waveform.c    **** {
+ 189               		.loc 1 81 0
+ 190               		.cfi_startproc
+ 191               	.LVL17:
+ 192 0000 CF92      		push r12
+ 193               	.LCFI12:
+ 194               		.cfi_def_cfa_offset 3
+ 195               		.cfi_offset 12, -2
+ 196 0002 DF92      		push r13
+ 197               	.LCFI13:
+ 198               		.cfi_def_cfa_offset 4
+ 199               		.cfi_offset 13, -3
+ 200 0004 EF92      		push r14
+ 201               	.LCFI14:
+ 202               		.cfi_def_cfa_offset 5
+ 203               		.cfi_offset 14, -4
+ 204 0006 FF92      		push r15
+ 205               	.LCFI15:
+ 206               		.cfi_def_cfa_offset 6
+ 207               		.cfi_offset 15, -5
+ 208 0008 0F93      		push r16
+ 209               	.LCFI16:
+ 210               		.cfi_def_cfa_offset 7
+ 211               		.cfi_offset 16, -6
+ 212 000a 1F93      		push r17
+ 213               	.LCFI17:
+ 214               		.cfi_def_cfa_offset 8
+ 215               		.cfi_offset 17, -7
+ 216 000c CF93      		push r28
+ 217               	.LCFI18:
+ 218               		.cfi_def_cfa_offset 9
+ 219               		.cfi_offset 28, -8
+ 220 000e DF93      		push r29
+ 221               	.LCFI19:
+ 222               		.cfi_def_cfa_offset 10
+ 223               		.cfi_offset 29, -9
+ 224               	/* prologue: function */
+ 225               	/* frame size = 0 */
+ 226               	/* stack size = 8 */
+ 227               	.L__stack_usage = 8
+ 228 0010 8C01      		movw r16,r24
+ 229 0012 D62F      		mov r29,r22
+ 230 0014 C72F      		mov r28,r23
+ 231 0016 6901      		movw r12,r18
+ 232 0018 7A01      		movw r14,r20
+  82:waveform.c    **** 
+  83:waveform.c    **** EVSYS.CH1MUX = 0xD0;    // CH1 = TCD5 overflow
+ 233               		.loc 1 83 0
+ 234 001a 80ED      		ldi r24,lo8(-48)
+ 235               	.LVL18:
+ 236 001c 8093 8101 		sts 385,r24
+  84:waveform.c    **** TCD5.CTRLA = 0x03;      // Prescaler: clk/4
+ 237               		.loc 1 84 0
+ 238 0020 83E0      		ldi r24,lo8(3)
+ 239 0022 8093 4009 		sts 2368,r24
+  85:waveform.c    **** TCD5.PER   = F_CPU/(len/2)/freq/4;        // 31=1MHz,63=500K,127=250K
+ 240               		.loc 1 85 0
+ 241 0026 862F      		mov r24,r22
+ 242 0028 972F      		mov r25,r23
+ 243 002a 97FD      		sbrc r25,7
+ 244 002c 0196      		adiw r24,1
+ 245               	.L7:
+ 246 002e 9C01      		movw r18,r24
+ 247               	.LVL19:
+ 248 0030 3595      		asr r19
+ 249 0032 2795      		ror r18
+ 250 0034 4427      		clr r20
+ 251 0036 37FD      		sbrc r19,7
+ 252 0038 4095      		com r20
+ 253 003a 542F      		mov r21,r20
+ 254 003c 60E0      		ldi r22,0
+ 255 003e 72E1      		ldi r23,lo8(18)
+ 256 0040 8AE7      		ldi r24,lo8(122)
+ 257 0042 90E0      		ldi r25,0
+ 258               	.LVL20:
+ 259 0044 0E94 0000 		call __udivmodsi4
+ 260 0048 CA01      		movw r24,r20
+ 261 004a B901      		movw r22,r18
+ 262 004c A701      		movw r20,r14
+ 263 004e 9601      		movw r18,r12
+ 264 0050 0E94 0000 		call __udivmodsi4
+ 265 0054 2093 6609 		sts 2406,r18
+ 266 0058 3093 6709 		sts 2406+1,r19
+  86:waveform.c    **** DACA.CTRLA = 0x05;      // Enable DACA and CH0
+ 267               		.loc 1 86 0
+ 268 005c 85E0      		ldi r24,lo8(5)
+ 269 005e 8093 0003 		sts 768,r24
+  87:waveform.c    **** DACA.CTRLB = 0x01;  // CH0 auto triggered by an event (CH1)
+ 270               		.loc 1 87 0
+ 271 0062 81E0      		ldi r24,lo8(1)
+ 272 0064 8093 0103 		sts 769,r24
+  88:waveform.c    **** DACA.CTRLC = 0x08;  // Use AVCC (3.3V), left adjust
+ 273               		.loc 1 88 0
+ 274 0068 98E0      		ldi r25,lo8(8)
+ 275 006a 9093 0203 		sts 770,r25
+  89:waveform.c    **** DACA.EVCTRL = 0x01; // Event CH1 triggers the DAC Conversion
+ 276               		.loc 1 89 0
+ 277 006e 8093 0303 		sts 771,r24
+  90:waveform.c    **** DACA.TIMCTRL = 0x50;// Minimum 32 CLK between conversions
+ 278               		.loc 1 90 0
+ 279 0072 80E5      		ldi r24,lo8(80)
+ 280 0074 8093 0403 		sts 772,r24
+  91:waveform.c    **** EDMA.CTRL = 0x80 | EDMA_CHMODE_STD0_gc;    // Enable, single buffer, round robin
+ 281               		.loc 1 91 0
+ 282 0078 80E9      		ldi r24,lo8(-112)
+ 283 007a 8093 0001 		sts 256,r24
+  92:waveform.c    **** EDMA.CH0.ADDRCTRL = 0xD9;// Reload, Increment source
+ 284               		.loc 1 92 0
+ 285 007e 89ED      		ldi r24,lo8(-39)
+ 286 0080 8093 1201 		sts 274,r24
+  93:waveform.c    **** EDMA.CH0.TRIGSRC= 0x15;  // DACA CH0 is trigger source
+ 287               		.loc 1 93 0
+ 288 0084 85E1      		ldi r24,lo8(21)
+ 289 0086 8093 1401 		sts 276,r24
+  94:waveform.c    **** EDMA.CH0.TRFCNTL = len & 0xFF;   // Buffer is len bytes
+ 290               		.loc 1 94 0
+ 291 008a D093 1601 		sts 278,r29
+  95:waveform.c    **** EDMA.CH0.TRFCNTH = (len >> 8) & 0xFF;
+ 292               		.loc 1 95 0
+ 293 008e C093 1701 		sts 279,r28
+  96:waveform.c    **** EDMA.CH0.ADDRL  =(((uint16_t)data)>>0*8) & 0xFF; // SRCADDRL
+ 294               		.loc 1 96 0
+ 295 0092 0093 1801 		sts 280,r16
+  97:waveform.c    **** EDMA.CH0.ADDRH  =(((uint16_t)data)>>1*8) & 0xFF; // SRCADDRH
+ 296               		.loc 1 97 0
+ 297 0096 1093 1901 		sts 281,r17
+  98:waveform.c    **** EDMA.CH0.DESTADDRL =(((uint16_t)(&DACA.CH0DATA))>>0*8)&0xFF;
+ 298               		.loc 1 98 0
+ 299 009a 88E1      		ldi r24,lo8(24)
+ 300 009c 8093 1C01 		sts 284,r24
+  99:waveform.c    **** EDMA.CH0.DESTADDRH =(((uint16_t)(&DACA.CH0DATA))>>1*8)&0xFF;
+ 301               		.loc 1 99 0
+ 302 00a0 83E0      		ldi r24,lo8(3)
+ 303 00a2 8093 1D01 		sts 285,r24
+ 100:waveform.c    **** EDMA.CH0.CTRLA = 0xA5;   // Enable, repeat, 1 byte, single 
+ 304               		.loc 1 100 0
+ 305 00a6 85EA      		ldi r24,lo8(-91)
+ 306 00a8 8093 1001 		sts 272,r24
+ 307               	/* epilogue start */
+ 101:waveform.c    **** };
+ 308               		.loc 1 101 0
+ 309 00ac DF91      		pop r29
+ 310 00ae CF91      		pop r28
+ 311 00b0 1F91      		pop r17
+ 312 00b2 0F91      		pop r16
+ 313               	.LVL21:
+ 314 00b4 FF90      		pop r15
+ 315 00b6 EF90      		pop r14
+ 316 00b8 DF90      		pop r13
+ 317 00ba CF90      		pop r12
+ 318               	.LVL22:
+ 319 00bc 0895      		ret
+ 320               		.cfi_endproc
+ 321               	.LFE9:
+ 323               		.section	.text.Config32MHzClock,"ax",@progbits
+ 324               	.global	Config32MHzClock
+ 326               	Config32MHzClock:
+ 327               	.LFB10:
+ 102:waveform.c    **** 
+ 103:waveform.c    **** 
+ 104:waveform.c    **** 
+ 105:waveform.c    **** void Config32MHzClock(void)
+ 106:waveform.c    **** {
+ 328               		.loc 1 106 0
+ 329               		.cfi_startproc
+ 330               	/* prologue: function */
+ 331               	/* frame size = 0 */
+ 332               	/* stack size = 0 */
+ 333               	.L__stack_usage = 0
+ 107:waveform.c    ****   CCP = CCP_IOREG_gc; //Security Signature to modify clock 
+ 334               		.loc 1 107 0
+ 335 0000 88ED      		ldi r24,lo8(-40)
+ 336 0002 84BF      		out __CCP__,r24
+ 108:waveform.c    ****   // initialize clock source to be 32MHz internal oscillator (no PLL)
+ 109:waveform.c    ****   OSC.CTRL = OSC_RC32MEN_bm; // enable internal 32MHz oscillator
+ 337               		.loc 1 109 0
+ 338 0004 82E0      		ldi r24,lo8(2)
+ 339 0006 8093 5000 		sts 80,r24
+ 340               	.L10:
+ 110:waveform.c    ****   while(!(OSC.STATUS & OSC_RC32MRDY_bm)); // wait for oscillator ready
+ 341               		.loc 1 110 0 discriminator 1
+ 342 000a 8091 5100 		lds r24,81
+ 343 000e 81FF      		sbrs r24,1
+ 344 0010 00C0      		rjmp .L10
+ 111:waveform.c    ****   CCP = CCP_IOREG_gc; //Security Signature to modify clock 
+ 345               		.loc 1 111 0
+ 346 0012 88ED      		ldi r24,lo8(-40)
+ 347 0014 84BF      		out __CCP__,r24
+ 112:waveform.c    ****   CLK.CTRL = 0x01; //select sysclock 32MHz osc
+ 348               		.loc 1 112 0
+ 349 0016 81E0      		ldi r24,lo8(1)
+ 350 0018 8093 4000 		sts 64,r24
+ 351 001c 0895      		ret
+ 352               		.cfi_endproc
+ 353               	.LFE10:
+ 355               		.section	.text.startup.main,"ax",@progbits
+ 356               	.global	main
+ 358               	main:
+ 359               	.LFB7:
+  16:waveform.c    **** {
+ 360               		.loc 1 16 0
+ 361               		.cfi_startproc
+ 362               	/* prologue: function */
+ 363               	/* frame size = 0 */
+ 364               	/* stack size = 0 */
+ 365               	.L__stack_usage = 0
+  19:waveform.c    ****   Config32MHzClock();
+ 366               		.loc 1 19 0
+ 367 0000 0E94 0000 		call Config32MHzClock
+ 368               	.LVL23:
+  21:waveform.c    ****   CLK.PSCTRL = 0x00; // no division on peripheral clock
+ 369               		.loc 1 21 0
+ 370 0004 1092 4100 		sts 65,__zero_reg__
+  24:waveform.c    ****   PORTCFG.CLKOUT = (PORTCFG.CLKOUT & ~PORTCFG_CLKOUTSEL_gm) | PORTCFG_CLKOUT_PC7_gc;
+ 371               		.loc 1 24 0
+ 372 0008 8091 B400 		lds r24,180
+ 373 000c 827F      		andi r24,lo8(-14)
+ 374 000e 8160      		ori r24,lo8(1)
+ 375 0010 8093 B400 		sts 180,r24
+  26:waveform.c    ****   PORTC.DIRSET = PIN7_bm;
+ 376               		.loc 1 26 0
+ 377 0014 80E8      		ldi r24,lo8(-128)
+ 378 0016 8093 4106 		sts 1601,r24
+  27:waveform.c    ****   TCC4.CTRLA = 4;
+ 379               		.loc 1 27 0
+ 380 001a 84E0      		ldi r24,lo8(4)
+ 381 001c 8093 0008 		sts 2048,r24
+  30:waveform.c    ****   PORTA.DIRSET = PIN2_bm;
+ 382               		.loc 1 30 0
+ 383 0020 8093 0106 		sts 1537,r24
+  31:waveform.c    ****   PORTA.OUT &= 0xFB;
+ 384               		.loc 1 31 0
+ 385 0024 8091 0406 		lds r24,1540
+ 386 0028 8B7F      		andi r24,lo8(-5)
+ 387 002a 8093 0406 		sts 1540,r24
+  46:waveform.c    ****   LoadSineWave(gWaveNumSamp);
+ 388               		.loc 1 46 0
+ 389 002e 8091 0000 		lds r24,gWaveNumSamp
+ 390 0032 9091 0000 		lds r25,gWaveNumSamp+1
+ 391 0036 0E94 0000 		call LoadSineWave
+ 392               	.LVL24:
+  49:waveform.c    ****   GenerateArbWave12(data12,gWaveNumSamp*2,10000);
+ 393               		.loc 1 49 0
+ 394 003a 6091 0000 		lds r22,gWaveNumSamp
+ 395 003e 7091 0000 		lds r23,gWaveNumSamp+1
+ 396 0042 660F      		lsl r22
+ 397 0044 771F      		rol r23
+ 398 0046 20E1      		ldi r18,lo8(16)
+ 399 0048 37E2      		ldi r19,lo8(39)
+ 400 004a 40E0      		ldi r20,0
+ 401 004c 50E0      		ldi r21,0
+ 402 004e 80E0      		ldi r24,lo8(data12)
+ 403 0050 90E0      		ldi r25,hi8(data12)
+ 404 0052 0E94 0000 		call GenerateArbWave12
+ 405               	.LVL25:
+ 406               	.L12:
+ 407               	.LBB4:
+ 408               	.LBB5:
+ 409               		.file 2 "/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h"
+   1:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h **** /* Copyright (c) 2002, Marek Michalkiewicz
+   2:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h ****    Copyright (c) 2004,2005,2007 Joerg Wunsch
+   3:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h ****    Copyright (c) 2007  Florin-Viorel Petrov
+   4:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h ****    All rights reserved.
+   5:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h **** 
+   6:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h ****    Redistribution and use in source and binary forms, with or without
+   7:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h ****    modification, are permitted provided that the following conditions are met:
+   8:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h **** 
+   9:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h ****    * Redistributions of source code must retain the above copyright
+  10:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h ****      notice, this list of conditions and the following disclaimer.
+  11:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h **** 
+  12:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h ****    * Redistributions in binary form must reproduce the above copyright
+  13:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h ****      notice, this list of conditions and the following disclaimer in
+  14:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h ****      the documentation and/or other materials provided with the
+  15:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h ****      distribution.
+  16:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h **** 
+  17:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h ****    * Neither the name of the copyright holders nor the names of
+  18:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h ****      contributors may be used to endorse or promote products derived
+  19:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h ****      from this software without specific prior written permission.
+  20:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h **** 
+  21:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h ****   THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+  22:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h ****   AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+  23:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h ****   IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+  24:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h ****   ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
+  25:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h ****   LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+  26:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h ****   CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+  27:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h ****   SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+  28:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h ****   INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+  29:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h ****   CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+  30:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h ****   ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+  31:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h ****   POSSIBILITY OF SUCH DAMAGE. */
+  32:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h **** 
+  33:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h **** /* $Id: delay.h.in 2251 2011-09-14 08:20:33Z joerg_wunsch $ */
+  34:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h **** 
+  35:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h **** #ifndef _UTIL_DELAY_H_
+  36:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h **** #define _UTIL_DELAY_H_ 1
+  37:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h **** 
+  38:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h **** #ifndef __HAS_DELAY_CYCLES
+  39:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h **** #define __HAS_DELAY_CYCLES 1
+  40:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h **** #endif
+  41:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h **** 
+  42:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h **** #include <inttypes.h>
+  43:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h **** #include <util/delay_basic.h>
+  44:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h **** #include <math.h>
+  45:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h **** 
+  46:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h **** /** \file */
+  47:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h **** /** \defgroup util_delay <util/delay.h>: Convenience functions for busy-wait delay loops
+  48:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h ****     \code
+  49:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h ****     #define F_CPU 1000000UL  // 1 MHz
+  50:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h ****     //#define F_CPU 14.7456E6
+  51:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h ****     #include <util/delay.h>
+  52:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h ****     \endcode
+  53:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h **** 
+  54:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h ****     \note As an alternative method, it is possible to pass the
+  55:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h ****     F_CPU macro down to the compiler from the Makefile.
+  56:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h ****     Obviously, in that case, no \c \#define statement should be
+  57:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h ****     used.
+  58:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h **** 
+  59:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h ****     The functions in this header file are wrappers around the basic
+  60:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h ****     busy-wait functions from <util/delay_basic.h>.  They are meant as
+  61:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h ****     convenience functions where actual time values can be specified
+  62:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h ****     rather than a number of cycles to wait for.  The idea behind is
+  63:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h ****     that compile-time constant expressions will be eliminated by
+  64:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h ****     compiler optimization so floating-point expressions can be used
+  65:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h ****     to calculate the number of delay cycles needed based on the CPU
+  66:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h ****     frequency passed by the macro F_CPU.
+  67:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h **** 
+  68:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h ****     \note In order for these functions to work as intended, compiler
+  69:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h ****     optimizations <em>must</em> be enabled, and the delay time
+  70:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h ****     <em>must</em> be an expression that is a known constant at
+  71:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h ****     compile-time.  If these requirements are not met, the resulting
+  72:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h ****     delay will be much longer (and basically unpredictable), and
+  73:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h ****     applications that otherwise do not use floating-point calculations
+  74:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h ****     will experience severe code bloat by the floating-point library
+  75:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h ****     routines linked into the application.
+  76:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h **** 
+  77:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h ****     The functions available allow the specification of microsecond, and
+  78:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h ****     millisecond delays directly, using the application-supplied macro
+  79:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h ****     F_CPU as the CPU clock frequency (in Hertz).
+  80:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h **** 
+  81:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h **** */
+  82:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h **** 
+  83:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h **** #if !defined(__DOXYGEN__)
+  84:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h **** static inline void _delay_us(double __us) __attribute__((always_inline));
+  85:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h **** static inline void _delay_ms(double __ms) __attribute__((always_inline));
+  86:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h **** #endif
+  87:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h **** 
+  88:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h **** #ifndef F_CPU
+  89:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h **** /* prevent compiler error by supplying a default */
+  90:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h **** # warning "F_CPU not defined for <util/delay.h>"
+  91:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h **** # define F_CPU 1000000UL
+  92:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h **** #endif
+  93:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h **** 
+  94:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h **** #ifndef __OPTIMIZE__
+  95:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h **** # warning "Compiler optimizations disabled; functions from <util/delay.h> won't work as designed"
+  96:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h **** #endif
+  97:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h **** 
+  98:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h **** #if __HAS_DELAY_CYCLES && defined(__OPTIMIZE__) && \
+  99:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h ****   !defined(__DELAY_BACKWARD_COMPATIBLE__) &&	   \
+ 100:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h ****   __STDC_HOSTED__
+ 101:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h **** #  include <math.h>
+ 102:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h **** #endif
+ 103:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h **** 
+ 104:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h **** /**
+ 105:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h ****    \ingroup util_delay
+ 106:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h **** 
+ 107:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h ****    Perform a delay of \c __ms milliseconds, using _delay_loop_2().
+ 108:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h **** 
+ 109:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h ****    The macro F_CPU is supposed to be defined to a
+ 110:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h ****    constant defining the CPU clock frequency (in Hertz).
+ 111:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h **** 
+ 112:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h ****    The maximal possible delay is 262.14 ms / F_CPU in MHz.
+ 113:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h **** 
+ 114:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h ****    When the user request delay which exceed the maximum possible one,
+ 115:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h ****    _delay_ms() provides a decreased resolution functionality. In this
+ 116:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h ****    mode _delay_ms() will work with a resolution of 1/10 ms, providing
+ 117:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h ****    delays up to 6.5535 seconds (independent from CPU frequency).  The
+ 118:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h ****    user will not be informed about decreased resolution.
+ 119:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h **** 
+ 120:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h ****    If the avr-gcc toolchain has __builtin_avr_delay_cycles(unsigned long)
+ 121:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h ****    support, maximal possible delay is 4294967.295 ms/ F_CPU in MHz. For
+ 122:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h ****    values greater than the maximal possible delay, overflows results in
+ 123:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h ****    no delay i.e., 0ms.
+ 124:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h **** 
+ 125:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h ****    Conversion of __us into clock cycles may not always result in integer.
+ 126:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h ****    By default, the clock cycles rounded up to next integer. This ensures that
+ 127:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h ****    the user gets atleast __us microseconds of delay.
+ 128:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h **** 
+ 129:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h ****    Alternatively, user can define __DELAY_ROUND_DOWN__ and __DELAY_ROUND_CLOSEST__
+ 130:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h ****    to round down and round to closest integer.
+ 131:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h **** 
+ 132:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h ****    Note: The new implementation of _delay_ms(double __ms) with 
+ 133:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h ****     __builtin_avr_delay_cycles(unsigned long) support is not backward compatible. 
+ 134:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h ****    User can define __DELAY_BACKWARD_COMPATIBLE__ to get a backward compatible delay.
+ 135:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h ****    Also, the backward compatible
+ 136:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h ****    algorithm will be chosen if the code is compiled in a <em>freestanding
+ 137:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h ****    environment</em> (GCC option \c -ffreestanding), as the math functions
+ 138:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h ****    required for rounding are not available to the compiler then.
+ 139:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h **** 
+ 140:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h ****  */
+ 141:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h **** void
+ 142:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h **** _delay_ms(double __ms)
+ 143:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h **** {
+ 144:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h **** 	uint16_t __ticks;
+ 145:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h **** 	double __tmp ; 
+ 146:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h **** #if __HAS_DELAY_CYCLES && defined(__OPTIMIZE__) && \
+ 147:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h ****   !defined(__DELAY_BACKWARD_COMPATIBLE__) &&	   \
+ 148:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h ****   __STDC_HOSTED__
+ 149:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h **** 	uint32_t __ticks_dc;
+ 150:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h **** 	extern void __builtin_avr_delay_cycles(unsigned long);
+ 151:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h **** 	__tmp = ((F_CPU) / 1e3) * __ms;
+ 152:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h **** 
+ 153:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h **** 	#if defined(__DELAY_ROUND_DOWN__)
+ 154:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h **** 		__ticks_dc = (uint32_t)fabs(__tmp);
+ 155:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h **** 
+ 156:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h **** 	#elif defined(__DELAY_ROUND_CLOSEST__)
+ 157:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h **** 		__ticks_dc = (uint32_t)(fabs(__tmp)+0.5);
+ 158:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h **** 
+ 159:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h **** 	#else
+ 160:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h **** 		//round up by default
+ 161:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h **** 		__ticks_dc = (uint32_t)(ceil(fabs(__tmp)));
+ 162:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h **** 	#endif
+ 163:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h **** 
+ 164:/usr/local/Cellar/avr-gcc/4.8.2/avr/include/util/delay.h **** 	__builtin_avr_delay_cycles(__ticks_dc);
+ 410               		.loc 2 164 0 discriminator 1
+ 411 0056 2FEF      		ldi r18,lo8(639999)
+ 412 0058 83EC      		ldi r24,hi8(639999)
+ 413 005a 99E0      		ldi r25,hlo8(639999)
+ 414 005c 2150      		1: subi r18,1
+ 415 005e 8040      		sbci r24,0
+ 416 0060 9040      		sbci r25,0
+ 417 0062 01F4      		brne 1b
+ 418 0064 00C0      		rjmp .
+ 419 0066 0000      		nop
+ 420 0068 00C0      		rjmp .L12
+ 421               	.LBE5:
+ 422               	.LBE4:
+ 423               		.cfi_endproc
+ 424               	.LFE7:
+ 426               	.global	gWaveNumSamp
+ 427               		.section	.data.gWaveNumSamp,"aw",@progbits
+ 430               	gWaveNumSamp:
+ 431 0000 3200      		.word	50
+ 432               		.comm	data12,200,1
+ 433               		.text
+ 434               	.Letext0:
+ 435               		.file 3 "/usr/local/Cellar/avr-gcc/4.8.2/avr/include/stdint.h"
+ 436               		.file 4 "/usr/local/Cellar/avr-gcc/4.8.2/avr/include/avr/iox32e5.h"
+ 437               		.file 5 "/usr/local/Cellar/avr-gcc/4.8.2/avr/include/math.h"
+DEFINED SYMBOLS
+                            *ABS*:0000000000000000 waveform.c
+/var/folders/wk/w_ph_ft94vb88t6p58fm50880000gn/T//ccUlCede.s:2      *ABS*:000000000000003e __SP_H__
+/var/folders/wk/w_ph_ft94vb88t6p58fm50880000gn/T//ccUlCede.s:3      *ABS*:000000000000003d __SP_L__
+/var/folders/wk/w_ph_ft94vb88t6p58fm50880000gn/T//ccUlCede.s:4      *ABS*:000000000000003f __SREG__
+/var/folders/wk/w_ph_ft94vb88t6p58fm50880000gn/T//ccUlCede.s:5      *ABS*:0000000000000034 __CCP__
+/var/folders/wk/w_ph_ft94vb88t6p58fm50880000gn/T//ccUlCede.s:6      *ABS*:0000000000000000 __tmp_reg__
+/var/folders/wk/w_ph_ft94vb88t6p58fm50880000gn/T//ccUlCede.s:7      *ABS*:0000000000000001 __zero_reg__
+/var/folders/wk/w_ph_ft94vb88t6p58fm50880000gn/T//ccUlCede.s:19     .text.LoadSineWave:0000000000000000 LoadSineWave
+                            *COM*:00000000000000c8 data12
+/var/folders/wk/w_ph_ft94vb88t6p58fm50880000gn/T//ccUlCede.s:187    .text.GenerateArbWave12:0000000000000000 GenerateArbWave12
+/var/folders/wk/w_ph_ft94vb88t6p58fm50880000gn/T//ccUlCede.s:326    .text.Config32MHzClock:0000000000000000 Config32MHzClock
+/var/folders/wk/w_ph_ft94vb88t6p58fm50880000gn/T//ccUlCede.s:358    .text.startup.main:0000000000000000 main
+/var/folders/wk/w_ph_ft94vb88t6p58fm50880000gn/T//ccUlCede.s:430    .data.gWaveNumSamp:0000000000000000 gWaveNumSamp
+
+UNDEFINED SYMBOLS
+__floatsisf
+__divsf3
+__mulsf3
+__addsf3
+__fixsfsi
+sin
+__udivmodsi4
+__do_copy_data
+__do_clear_bss

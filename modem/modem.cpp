@@ -6,8 +6,29 @@
 #include <avr/interrupt.h>
 #include <avr/pgmspace.h>
 
+#include "sinetable.h"
+
+#define TICKS_1200HZ       26368 // theoretically 26667
+#define TICKS_2200HZ       14400 // theoretically 14545
+#define TICKS_9600HZ        3333
+
+#define TICKS_2200HZ_BY_32   450 // theoretically 454
+#define TICKS_1200HZ_BY_32   824 // theoretically 833
+
+typedef enum TONE_enum {
+  TONE_1200HZ,
+  TONE_2200HZ,
+} TONE_t;
+
 static volatile uint8_t echo_char = 42;
 static volatile int cur_recv_signal = 0; // 12 bit value from the adc
+
+extern const uint16_t sine_table[];
+static volatile size_t sine_table_i = 0;
+static const size_t sine_table_size = sizeof(sine_table)/sizeof(uint16_t);
+
+static volatile TONE_t cur_tone = TONE_2200HZ;
+static volatile uint16_t next_switch = 0;
 
 static const uint16_t DAC_table[] = {0x0000, 0x0800, 0x0800, 0x0000};
 static volatile size_t DAC_table_i = 0;
@@ -110,7 +131,7 @@ static inline void init_adc() {
  */
 static inline void init_timer() {
   // todo: figure out an appropriete clock scale
-  TCC4.CTRLA |= TC4_CLKSEL0_bm | TC4_CLKSEL1_bm | TC4_CLKSEL2_bm;
+  TCC4.CTRLA |= TC4_CLKSEL0_bm;
   // set compare mode
   TCC4.CTRLE |= TC4_CCBMODE0_bm | TC4_CCAMODE0_bm;
   // configure as HIGH level interrupts
@@ -195,10 +216,13 @@ ISR(TCC4_CCA_vect) {
 
 ISR(TCC4_CCB_vect) {
   // set next time
-  TCC4.CCA += 6000;
+  TCC4.CCB += 824; //TICKS_1200HZ_BY_32;
 
   // write some DAC output
-  DACA.CH0DATA = DAC_table[DAC_table_i];
+  DACA.CH0DATA = sine_table[sine_table_i];
   // and update increment
-  DAC_table_i = (DAC_table_i + 1) % 4;
+  sine_table_i = (sine_table_i + 32);
+  if(sine_table_i >= sine_table_size) {
+    sine_table_i -= sine_table_size;
+  }
 }
