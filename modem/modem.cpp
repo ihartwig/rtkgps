@@ -63,6 +63,9 @@ static volatile uint16_t next_bit_switch = 0;
 static const uint16_t DAC_table[] = {0x0000, 0x0800, 0x0800, 0x0000};
 static volatile size_t DAC_table_i = 0;
 
+static uint8_t test_data[256];
+static volatile size_t test_data_size = 0;
+
 
 /**
  * 1KB Ring Buffer
@@ -311,6 +314,13 @@ int main( void )
       cur_mode = MODE_SEND;
     }
 
+    if(test_data_size == 256) {
+      for(int i = 0; i < 256; i++) {
+        usart_write(test_data[i]);
+      }
+      test_data_size = 257;
+    }
+
     // usart_write(echo_char);
     // PORTA.OUTSET = PIN0_bm;
     // _delay_ms( 1000 );
@@ -341,6 +351,12 @@ static inline void receive_cycle() {
   ADCA.CTRLA |= 0x4;
   while(!ADCA.CH0.INTFLAGS); // wait for conversion complete flag
   ADCA.CH0.INTFLAGS = 0;
+
+  // save to test buffer
+  if(test_data_size < 256) {
+    test_data[test_data_size] = ADCA.CH0.RESL;
+    test_data_size++;
+  }
 }
 
 
@@ -353,32 +369,32 @@ static inline void send_cycle() {
     sine_table_i -= sine_table_size;
   }
 
-  if(cur_send_mode == SEND_MODE_COLD) {
-    if(!buf_is_empty(&radio_send_buf)) {
-      // init sending by loading from buffer if there are bytes
-      uint8_t data = buf_remove(&radio_send_buf);
-      send_byte_init(&cur_send_byte, data);
-      send_byte_set_tone(&cur_send_byte);
-      cur_send_mode = SEND_MODE_ACTIVE;
-    }
+  // if(cur_send_mode == SEND_MODE_COLD) {
+  //   if(!buf_is_empty(&radio_send_buf)) {
+  //     // init sending by loading from buffer if there are bytes
+  //     uint8_t data = buf_remove(&radio_send_buf);
+  //     send_byte_init(&cur_send_byte, data);
+  //     send_byte_set_tone(&cur_send_byte);
+  //     cur_send_mode = SEND_MODE_ACTIVE;
+  //   }
 
-    // ignore otherwise
+  //   // ignore otherwise
 
-  } else {
-    if(send_byte_done(&cur_send_byte)) {
-      // try to make a new byte
-      if(!buf_is_empty(&radio_send_buf)) {
-        uint8_t data = buf_remove(&radio_send_buf);
-        send_byte_init(&cur_send_byte, data);
-        send_byte_set_tone(&cur_send_byte);
-      } else {
-        cur_send_mode = SEND_MODE_COLD;
-      }
-    } else {
-      // move to the next bit of this byte
-      send_byte_set_tone(&cur_send_byte);
-    }
-  }
+  // } else {
+  //   if(send_byte_done(&cur_send_byte)) {
+  //     // try to make a new byte
+  //     if(!buf_is_empty(&radio_send_buf)) {
+  //       uint8_t data = buf_remove(&radio_send_buf);
+  //       send_byte_init(&cur_send_byte, data);
+  //       send_byte_set_tone(&cur_send_byte);
+  //     } else {
+  //       cur_send_mode = SEND_MODE_COLD;
+  //     }
+  //   } else {
+  //     // move to the next bit of this byte
+  //     send_byte_set_tone(&cur_send_byte);
+  //   }
+  // }
 
   next_bit_switch = TCC4.CCB + TICKS_1200HZ;
 }
