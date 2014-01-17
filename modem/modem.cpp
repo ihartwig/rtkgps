@@ -7,6 +7,11 @@
  * Pin 28 (D:0): Serial buffer overflow
  * Pin 27 (D:1): Interrupt debug signal
  * Pin 26 (D:2): mode select (5V receive)
+ * Pin 2: ADC reference. give (3.3/2)V
+ * Pin 4: DAC output
+ * Pin 5: ADC input
+ * Pin 7: PDI Data (Prog 1)
+ * Pin 8: PDI Reset (Prog 5) with pull up
  */
 
 #include <avr/io.h>
