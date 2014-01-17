@@ -1,5 +1,13 @@
-// (C) 2013 Joost Yervante Damad <joost@damad.be>
-// License: GPL3
+/**
+ * Bell 202 Style Serial Modem
+ * MARK: 2200 Hz
+ * SPACE: 1200 Hz
+ * Protocol: Similar to UART. Idles at MARK. 8E1 encoding.
+ *
+ * Pin 28 (D:0): Serial buffer overflow
+ * Pin 27 (D:1): Interrupt debug signal
+ * Pin 26 (D:2): mode select (5V receive)
+ */
 
 #include <avr/io.h>
 #include <util/delay.h>
@@ -15,7 +23,10 @@
 #define TICKS_2200HZ_BY_32   450 // theoretically 454
 #define TICKS_1200HZ_BY_32   824 // theoretically 833
 
+#define DATA_BUF_LEN        1024
+
 typedef enum TONE_enum {
+  TONE_UNKNOWN,
   TONE_1200HZ,
   TONE_2200HZ,
 } TONE_t;
@@ -32,12 +43,52 @@ extern const uint16_t sine_table[];
 static volatile size_t sine_table_i = 0;
 static const size_t sine_table_size = sizeof(sine_table)/sizeof(uint16_t);
 
-static volatile TONE_t cur_tone = TONE_2200HZ;
+static volatile TONE_t cur_send_tone = TONE_2200HZ;
+static volatile TONE_t cur_recv_tone = TONE_UNKNOWN;
 static volatile MODE_t cur_mode = MODE_SEND;
 static volatile uint16_t next_switch = 0;
 
 static const uint16_t DAC_table[] = {0x0000, 0x0800, 0x0800, 0x0000};
 static volatile size_t DAC_table_i = 0;
+
+/**
+ * 1KB Ring Buffer
+ * This buffer should only be edited when in an interrupt or interrupts are
+ * disabled during normal execution.
+ * Empty when next == (first+1). Full when next == first
+ */
+typedef struct data_buf_struct {
+  volatile uint8_t buf[DATA_BUF_LEN];
+  volatile size_t first;
+  volatile size_t next;
+} data_buf_t;
+
+data_buf_t radio_send_buf;
+data_buf_t radio_recv_buf;
+
+inline void buf_init(data_buf_t *buf) {
+  buf->first = 0;
+  buf->next = 1;
+}
+
+inline int buf_is_empty(data_buf_t *buf) {
+  return (buf->first + 1) % DATA_BUF_LEN == buf->next % DATA_BUF_LEN;
+}
+
+inline int buf_is_full(data_buf_t *buf) {
+  return buf->next % DATA_BUF_LEN == buf->first % DATA_BUF_LEN;
+}
+
+inline void buf_add(data_buf_t *buf, uint8_t data) {
+  buf->buf[buf->next] = data;
+  buf->next++;
+}
+
+inline uint8_t buf_remove(data_buf_t *buf) {
+  // failure case: make sure we don't corrupt the buf pointers
+  // if(buf_is_empty(buf))
+  return buf->buf[buf->first++];
+}
 
 void usart_write(uint8_t data)
 {
@@ -171,24 +222,26 @@ int main( void )
   // set PC7 as output
   PORTC.DIRSET = PIN7_bm;
 
+  // setup data structures
+  buf_init(&radio_send_buf);
+  buf_init(&radio_recv_buf);
+
+  // setup pins
+  // use PD:2 (pin 26) as input
+  PORTD.DIR &= ~PIN2_bm;
+  PORTD.DIR |= PIN1_bm | PIN0_bm;
+  PORTD.OUT &= ~PIN1_bm & ~PIN0_bm;
+
   init_adc();
-
   init_timer();
-
   init_dac();
-
   init_usart();
-
   init_interrupts();
 
   // set PA0 as output
   // PORTA.DIRSET = PIN0_bm;
   // blink LED on PA0 with 1 second on, 1 second off
   // write echo_char on USART on D7; defaults to 42(*)
-
-  // use PD:2 (pin 26) as input
-  PORTD.DIR &= ~PIN2_bm;
-  PORTD.DIR |= PIN1_bm;
 
   while (1) {
     if(PORTD.IN & PIN2_bm) {
@@ -214,7 +267,7 @@ static inline void set_next_iter() {
     TCC4.CCB += 3310;
   } else {
     // cur_mode = MODE_SEND
-    if(cur_tone == TONE_2200HZ) {
+    if(cur_send_tone == TONE_2200HZ) {
       TCC4.CCB += TICKS_2200HZ_BY_32;
     } else {
       TCC4.CCB += TICKS_1200HZ_BY_32;
@@ -244,7 +297,16 @@ static inline void send_cycle() {
 
 // USART RX receive interrupt handler
 ISR(USARTD0_RXC_vect) {
-  echo_char = USARTD0.DATA;
+  if(buf_is_full(&radio_send_buf)) {
+  // if(1==0) {
+    // ignore and flip the overflow bit
+    usart_write((char) (radio_send_buf.first & 0xFF));
+    usart_write((char) (radio_send_buf.next & 0xFF));
+    PORTD.OUT |= PIN0_bm;
+  } else {
+    // save to the radio send buf
+    // buf_add(&radio_send_buf, USARTD0.DATA);
+  }
 }
 
 
