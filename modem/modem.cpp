@@ -365,18 +365,21 @@ static inline void send_cycle() {
     // ignore otherwise
 
   } else {
-    if(send_byte_done(&cur_send_byte)) {
-      // try to make a new byte
-      if(!buf_is_empty(&radio_send_buf)) {
-        uint8_t data = buf_remove(&radio_send_buf);
-        send_byte_init(&cur_send_byte, data);
-        send_byte_set_tone(&cur_send_byte);
+    // determine if we have made this tone long enough
+    if(TCC4.CCB >= next_bit_switch) {
+      if(send_byte_done(&cur_send_byte)) {
+        // try to make a new byte
+        if(!buf_is_empty(&radio_send_buf)) {
+          uint8_t data = buf_remove(&radio_send_buf);
+          send_byte_init(&cur_send_byte, data);
+          send_byte_set_tone(&cur_send_byte);
+        } else {
+          cur_send_mode = SEND_MODE_COLD;
+        }
       } else {
-        cur_send_mode = SEND_MODE_COLD;
+        // move to the next bit of this byte
+        send_byte_set_tone(&cur_send_byte);
       }
-    } else {
-      // move to the next bit of this byte
-      send_byte_set_tone(&cur_send_byte);
     }
   }
 
