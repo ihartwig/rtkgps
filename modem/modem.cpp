@@ -20,6 +20,11 @@ typedef enum TONE_enum {
   TONE_2200HZ,
 } TONE_t;
 
+typedef enum MODE_enum {
+  MODE_RECEIVE,
+  MODE_SEND,
+} MODE_t;
+
 static volatile uint8_t echo_char = 42;
 static volatile int cur_recv_signal = 0; // 12 bit value from the adc
 
@@ -28,6 +33,7 @@ static volatile size_t sine_table_i = 0;
 static const size_t sine_table_size = sizeof(sine_table)/sizeof(uint16_t);
 
 static volatile TONE_t cur_tone = TONE_2200HZ;
+static volatile MODE_t cur_mode = MODE_SEND;
 static volatile uint16_t next_switch = 0;
 
 static const uint16_t DAC_table[] = {0x0000, 0x0800, 0x0800, 0x0000};
@@ -135,9 +141,7 @@ static inline void init_timer() {
   // set compare mode
   TCC4.CTRLE |= TC4_CCBMODE0_bm | TC4_CCAMODE0_bm;
   // configure as HIGH level interrupts
-  TCC4.INTCTRLB |= TC4_CCBINTLVL0_bm | TC4_CCBINTLVL1_bm |
-                   TC4_CCAINTLVL0_bm | TC4_CCAINTLVL1_bm;
-  TCC4.CCA = 5000;
+  TCC4.INTCTRLB |= TC4_CCBINTLVL0_bm | TC4_CCBINTLVL1_bm;
   TCC4.CCB = 6000;
 }
 
@@ -182,9 +186,18 @@ int main( void )
   // blink LED on PA0 with 1 second on, 1 second off
   // write echo_char on USART on D7; defaults to 42(*)
 
-  usart_write((char) 0x42);
+  // use PD:2 (pin 26) as input
+  PORTD.DIR &= ~PIN2_bm;
+  PORTD.DIR |= PIN1_bm;
+
   while (1) {
-    _delay_ms(100);
+    if(PORTD.IN & PIN2_bm) {
+      // high: receive mode
+      cur_mode = MODE_RECEIVE;
+    } else {
+      cur_mode = MODE_SEND;
+    }
+
     // usart_write(echo_char);
     // PORTA.OUTSET = PIN0_bm;
     // _delay_ms( 1000 );
@@ -195,33 +208,30 @@ int main( void )
 }
 
 
-// USART RX receive interrupt handler
-ISR(USARTD0_RXC_vect) {
-  echo_char = USARTD0.DATA;
+static inline void set_next_iter() {
+  if(cur_mode == MODE_RECEIVE) {
+    // TCC4.CCB += TICKS_9600HZ;
+    TCC4.CCB += 3310;
+  } else {
+    // cur_mode = MODE_SEND
+    if(cur_tone == TONE_2200HZ) {
+      TCC4.CCB += TICKS_2200HZ_BY_32;
+    } else {
+      TCC4.CCB += TICKS_1200HZ_BY_32;
+    }
+  }
 }
 
 
-ISR(TCC4_CCA_vect) {
-  // set next time
-  TCC4.CCA += 5000;
-
+static inline void receive_cycle() {
   // capture from ADC
   ADCA.CTRLA |= 0x4;
-  while(!ADCA.CH0.INTFLAGS);                 // wait for conversion complete flag
+  while(!ADCA.CH0.INTFLAGS); // wait for conversion complete flag
   ADCA.CH0.INTFLAGS = 0;
-
-  // usart_write(ADCA.CH0RESL);
 }
 
 
-ISR(TCC4_CCB_vect) {
-  // set next time
-  if(cur_tone == TONE_2200HZ) {
-    TCC4.CCB += TICKS_2200HZ_BY_32;
-  } else {
-    TCC4.CCB += TICKS_1200HZ_BY_32;
-  }
-
+static inline void send_cycle() {
   // write some DAC output
   DACA.CH0DATA = sine_table[sine_table_i];
   // and update increment
@@ -229,4 +239,26 @@ ISR(TCC4_CCB_vect) {
   if(sine_table_i >= sine_table_size) {
     sine_table_i -= sine_table_size;
   }
+}
+
+
+// USART RX receive interrupt handler
+ISR(USARTD0_RXC_vect) {
+  echo_char = USARTD0.DATA;
+}
+
+
+ISR(TCC4_CCB_vect) {
+  PORTD.OUT |= PIN1_bm;
+
+  set_next_iter();
+
+  if(cur_mode == MODE_RECEIVE) {
+    receive_cycle();
+    // send_cycle();
+  } else {
+    send_cycle();
+  }
+
+  PORTD.OUT &= ~PIN1_bm;
 }
