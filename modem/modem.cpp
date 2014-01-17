@@ -23,7 +23,8 @@
 #define TICKS_2200HZ_BY_32   450 // theoretically 454
 #define TICKS_1200HZ_BY_32   824 // theoretically 833
 
-#define DATA_BUF_LEN        1024
+#define DATA_BUF_LEN        256
+#define SEND_BYTE_BITS_LEN   10
 
 typedef enum TONE_enum {
   TONE_UNKNOWN,
@@ -36,6 +37,11 @@ typedef enum MODE_enum {
   MODE_SEND,
 } MODE_t;
 
+typedef enum SEND_MODE_enum {
+  SEND_MODE_COLD, // we need to build a new bit before starting
+  SEND_MODE_ACTIVE,
+} SEND_MODE_t;
+
 static volatile uint8_t echo_char = 42;
 static volatile int cur_recv_signal = 0; // 12 bit value from the adc
 
@@ -46,10 +52,12 @@ static const size_t sine_table_size = sizeof(sine_table)/sizeof(uint16_t);
 static volatile TONE_t cur_send_tone = TONE_2200HZ;
 static volatile TONE_t cur_recv_tone = TONE_UNKNOWN;
 static volatile MODE_t cur_mode = MODE_SEND;
-static volatile uint16_t next_switch = 0;
+static volatile SEND_MODE_t cur_send_mode = SEND_MODE_COLD;
+static volatile uint16_t next_bit_switch = 0;
 
 static const uint16_t DAC_table[] = {0x0000, 0x0800, 0x0800, 0x0000};
 static volatile size_t DAC_table_i = 0;
+
 
 /**
  * 1KB Ring Buffer
@@ -81,14 +89,61 @@ inline int buf_is_full(data_buf_t *buf) {
 
 inline void buf_add(data_buf_t *buf, uint8_t data) {
   buf->buf[buf->next] = data;
-  buf->next++;
+  buf->next = (buf->next + 1) % DATA_BUF_LEN;
 }
 
 inline uint8_t buf_remove(data_buf_t *buf) {
   // failure case: make sure we don't corrupt the buf pointers
   // if(buf_is_empty(buf))
-  return buf->buf[buf->first++];
+  uint8_t temp_data = buf->buf[buf->first];
+  buf->first = (buf->first + 1) % DATA_BUF_LEN;
+  return temp_data;
 }
+
+inline size_t buf_len(data_buf_t *buf) {
+  if(buf->next <= buf->first) {
+    // we need to pretend the buf is actually longer
+    return (buf->next + DATA_BUF_LEN - 1) - buf->first;
+  } else {
+    return (buf->next - 1) - buf->first;
+  }
+}
+
+
+/**
+ * Current Byte Pattern Control
+ * Tracks the sending of the current byte.
+ */
+typedef struct send_byte_struct {
+  TONE_t bits[SEND_BYTE_BITS_LEN];
+  size_t cur_bit;
+} send_byte_t;
+
+send_byte_t cur_send_byte;
+
+inline void send_byte_init(send_byte_t *st, uint8_t data) {
+  st->cur_bit = 0;
+  st->bits[0] = TONE_1200HZ; // start bit space
+  st->bits[1] = data & 0x01 ? TONE_2200HZ : TONE_1200HZ;
+  st->bits[2] = data & 0x02 ? TONE_2200HZ : TONE_1200HZ;
+  st->bits[3] = data & 0x04 ? TONE_2200HZ : TONE_1200HZ;
+  st->bits[4] = data & 0x08 ? TONE_2200HZ : TONE_1200HZ;
+  st->bits[5] = data & 0x10 ? TONE_2200HZ : TONE_1200HZ;
+  st->bits[6] = data & 0x20 ? TONE_2200HZ : TONE_1200HZ;
+  st->bits[7] = data & 0x40 ? TONE_2200HZ : TONE_1200HZ;
+  st->bits[8] = data & 0x80 ? TONE_2200HZ : TONE_1200HZ;
+  st->bits[9] = TONE_2200HZ; // stop bit mark
+}
+
+inline void send_byte_set_tone(send_byte_t *st) {
+  cur_send_tone = st->bits[st->cur_bit];
+  st->cur_bit++;
+}
+
+inline int send_byte_done(send_byte_t *st) {
+  return st->cur_bit >= SEND_BYTE_BITS_LEN;
+}
+
 
 void usart_write(uint8_t data)
 {
@@ -292,6 +347,35 @@ static inline void send_cycle() {
   if(sine_table_i >= sine_table_size) {
     sine_table_i -= sine_table_size;
   }
+
+  if(cur_send_mode == SEND_MODE_COLD) {
+    if(!buf_is_empty(&radio_send_buf)) {
+      // init sending by loading from buffer if there are bytes
+      uint8_t data = buf_remove(&radio_send_buf);
+      send_byte_init(&cur_send_byte, data);
+      send_byte_set_tone(&cur_send_byte);
+      cur_send_mode = SEND_MODE_ACTIVE;
+    }
+
+    // ignore otherwise
+
+  } else {
+    if(send_byte_done(&cur_send_byte)) {
+      // try to make a new byte
+      if(!buf_is_empty(&radio_send_buf)) {
+        uint8_t data = buf_remove(&radio_send_buf);
+        send_byte_init(&cur_send_byte, data);
+        send_byte_set_tone(&cur_send_byte);
+      } else {
+        cur_send_mode = SEND_MODE_COLD;
+      }
+    } else {
+      // move to the next bit of this byte
+      send_byte_set_tone(&cur_send_byte);
+    }
+  }
+
+  next_bit_switch = TCC4.CCB + TICKS_1200HZ;
 }
 
 
@@ -300,12 +384,17 @@ ISR(USARTD0_RXC_vect) {
   if(buf_is_full(&radio_send_buf)) {
   // if(1==0) {
     // ignore and flip the overflow bit
-    usart_write((char) (radio_send_buf.first & 0xFF));
-    usart_write((char) (radio_send_buf.next & 0xFF));
+    // usart_write((char) (radio_send_buf.first & 0xFF));
+    // usart_write((char) (radio_send_buf.next & 0xFF));
+    // usart_write(USARTD0.DATA);
+    uint8_t have_to_read = USARTD0.DATA;
+    have_to_read = have_to_read;
     PORTD.OUT |= PIN0_bm;
   } else {
+    // usart_write(USARTD0.DATA);
     // save to the radio send buf
-    // buf_add(&radio_send_buf, USARTD0.DATA);
+    buf_add(&radio_send_buf, USARTD0.DATA);
+    usart_write(buf_len(&radio_send_buf) & 0xFF);
   }
 }
 
@@ -313,14 +402,14 @@ ISR(USARTD0_RXC_vect) {
 ISR(TCC4_CCB_vect) {
   PORTD.OUT |= PIN1_bm;
 
-  set_next_iter();
-
   if(cur_mode == MODE_RECEIVE) {
     receive_cycle();
     // send_cycle();
   } else {
     send_cycle();
   }
+
+  set_next_iter(); // important: after to react to new tones
 
   PORTD.OUT &= ~PIN1_bm;
 }
