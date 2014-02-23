@@ -16,3 +16,10 @@
 *.exe
 *.out
 *.app
+
+# AVR Compilation Files
+.eep
+.elf
+.hex
+.lst
+.map
