@@ -18,8 +18,8 @@
 *.app
 
 # AVR Compilation Files
-.eep
-.elf
-.hex
-.lst
-.map
+*.eep
+*.elf
+*.hex
+*.lst
+*.map
