@@ -5,7 +5,7 @@
 
 #define SOUTDDR DDRB
 #define SOUTPORT PORTB
-#define SOUTPIN PB0 // D8
+#define SOUTPIN PB1 // D9
 
 void inline bit_bang_toggle(double on_time) {
   SOUTPORT |= _BV(SOUTPIN);
