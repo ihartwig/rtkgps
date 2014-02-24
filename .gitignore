@@ -24,3 +24,5 @@
 *.lst
 *.map
 *.dep
+*.lss
+*.sym

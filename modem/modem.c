@@ -3,100 +3,57 @@
 #include <avr/sleep.h>
 #include <avr/interrupt.h>
 
-#define SOUTDDR DDRB
-#define SOUTPORT PORTB
-#define SOUTPIN PB1 // D9
+#define SOUTDDR DDRD
+#define SOUTPORT PORTD
+#define SOUTPIN PD6 // D6
 
-void inline bit_bang_toggle(double on_time) {
-  SOUTPORT |= _BV(SOUTPIN);
-  _delay_us(on_time);
-  SOUTPORT &= ~_BV(SOUTPIN);
-  _delay_us(16.0 - on_time); // was 35
-}
+#define TWORD_1200HZ 5 // (1200*256)/62500
+#define TWORD_2200HZ 9 // (2200*256)/62500
+
+uint8_t sine_table[256] = {
+  127,130,133,136,139,143,146,149,152,155,158,161,164,167,170,173,176,178,181,
+  184,187,190,192,195,198,200,203,205,208,210,212,215,217,219,221,223,225,227,
+  229,231,233,234,236,238,239,240,242,243,244,245,247,248,249,249,250,251,252,
+  252,253,253,253,254,254,254,254,254,254,254,253,253,253,252,252,251,250,249,
+  249,248,247,245,244,243,242,240,239,238,236,234,233,231,229,227,225,223,221,
+  219,217,215,212,210,208,205,203,200,198,195,192,190,187,184,181,178,176,173,
+  170,167,164,161,158,155,152,149,146,143,139,136,133,130,127,124,121,118,115,
+  111,108,105,102,99,96,93,90,87,84,81,78,76,73,70,67,64,62,59,56,54,51,49,46,
+  44,42,39,37,35,33,31,29,27,25,23,21,20,18,16,15,14,12,11,10,9,7,6,5,5,4,3,2,
+  2,1,1,1,0,0,0,0,0,0,0,1,1,1,2,2,3,4,5,5,6,7,9,10,11,12,14,15,16,18,20,21,23,
+  25,27,29,31,33,35,37,39,42,44,46,49,51,54,56,59,62,64,67,70,73,76,78,81,84,87,
+  90,93,96,99,102,105,108,111,115,118,121,124
+};
+
+uint8_t sine_table_pos = 0;
+
 
 int main(void) {
   // set output for sine generation, start off
-  SOUTPORT |= _BV(SOUTPIN);
+  // SOUTPORT |= _BV(SOUTPIN);
   SOUTDDR |= _BV(SOUTPIN);
 
-  while(1) {
-    // bit_bang_toggle(17.5000);
-    // bit_bang_toggle(22.0293);
-    // bit_bang_toggle(26.2500);
-    // bit_bang_toggle(29.8744);
-    // bit_bang_toggle(32.6554);
-    // bit_bang_toggle(34.4037);
-    // bit_bang_toggle(35.0000);
-    // bit_bang_toggle(34.4037);
-    // bit_bang_toggle(32.6554);
-    // bit_bang_toggle(29.8744);
-    // bit_bang_toggle(26.2500);
-    // bit_bang_toggle(22.0293);
-    // bit_bang_toggle(17.5000);
-    // bit_bang_toggle(12.9707);
-    // bit_bang_toggle( 8.7500);
-    // bit_bang_toggle( 5.1256);
-    // bit_bang_toggle( 2.3446);
-    // bit_bang_toggle( 0.5963);
-    // bit_bang_toggle(      0);
-    // bit_bang_toggle( 0.5963);
-    // bit_bang_toggle( 2.3446);
-    // bit_bang_toggle( 5.1256);
-    // bit_bang_toggle( 8.7500);
-    // bit_bang_toggle(12.9707);
+  PORTD &= ~_BV(PD7);
+  DDRD |= _BV(PD7);
 
-    bit_bang_toggle( 8.0000);
-    bit_bang_toggle( 8.9643);
-    bit_bang_toggle( 9.9145);
-    bit_bang_toggle(10.8368);
-    bit_bang_toggle(11.7178);
-    bit_bang_toggle(12.5445);
-    bit_bang_toggle(13.3050);
-    bit_bang_toggle(13.9881);
-    bit_bang_toggle(14.5839);
-    bit_bang_toggle(15.0836);
-    bit_bang_toggle(15.4801);
-    bit_bang_toggle(15.7675);
-    bit_bang_toggle(15.9417);
-    bit_bang_toggle(16.0000);
-    bit_bang_toggle(15.9417);
-    bit_bang_toggle(15.7675);
-    bit_bang_toggle(15.4801);
-    bit_bang_toggle(15.0836);
-    bit_bang_toggle(14.5839);
-    bit_bang_toggle(13.9881);
-    bit_bang_toggle(13.3050);
-    bit_bang_toggle(12.5445);
-    bit_bang_toggle(11.7178);
-    bit_bang_toggle(10.8368);
-    bit_bang_toggle( 9.9145);
-    bit_bang_toggle( 8.9643);
-    bit_bang_toggle( 8.0000);
-    bit_bang_toggle( 7.0357);
-    bit_bang_toggle( 6.0855);
-    bit_bang_toggle( 5.1632);
-    bit_bang_toggle( 4.2822);
-    bit_bang_toggle( 3.4555);
-    bit_bang_toggle( 2.6950);
-    bit_bang_toggle( 2.0119);
-    bit_bang_toggle( 1.4161);
-    bit_bang_toggle( 0.9164);
-    bit_bang_toggle( 0.5199);
-    bit_bang_toggle( 0.2325);
-    bit_bang_toggle( 0.0583);
-    bit_bang_toggle(      0);
-    bit_bang_toggle( 0.0583);
-    bit_bang_toggle( 0.2325);
-    bit_bang_toggle( 0.5199);
-    bit_bang_toggle( 0.9164);
-    bit_bang_toggle( 1.4161);
-    bit_bang_toggle( 2.0119);
-    bit_bang_toggle( 2.6950);
-    bit_bang_toggle( 3.4555);
-    bit_bang_toggle( 4.2822);
-    bit_bang_toggle( 5.1632);
-    bit_bang_toggle( 6.0855);
-    bit_bang_toggle( 7.0357);
-  }
+  sei();
+
+  // set timer for no scaling Fovr = 16000000/256 = 62500Hz, fast pwm mode
+  TCCR0A |= _BV(COM0A1) | _BV(WGM01) | _BV(WGM00);
+  TCCR0B |= _BV(CS00);
+  TIMSK0 |= _BV(TOIE0);
+  OCR0A = 127;
+
+  while(1) {}
   return 0;
+}
+
+
+ISR(TIMER0_OVF_vect) {
+  // PORTD |= _BV(PD7);
+  // _delay_us(2);
+  // PORTD &= ~_BV(PD7);
+  // figure out when the next compare should happen by doing a sine table lookup
+  sine_table_pos += TWORD_1200HZ;
+  OCR0A = sine_table[sine_table_pos];
 }
