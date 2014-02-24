@@ -7,8 +7,8 @@
 #define SOUTPORT PORTD
 #define SOUTPIN PD6 // D6
 
-#define TWORD_1200HZ 5 // (1200*256)/62500
-#define TWORD_2200HZ 9 // (2200*256)/62500
+#define TWORD_LOW 5 // LOW=1200Hz; (1200*256)/62500
+#define TWORD_HIGH 9 // HIGH=2200Hz; (2200*256)/62500
 
 uint8_t sine_table[256] = {
   127,130,133,136,139,143,146,149,152,155,158,161,164,167,170,173,176,178,181,
@@ -27,6 +27,12 @@ uint8_t sine_table[256] = {
 
 uint8_t sine_table_pos = 0;
 
+typedef enum {
+  TONE_LOW,
+  TONE_HIGH
+} tone_t;
+volatile tone_t current_tone;
+
 
 int main(void) {
   // set output for sine generation, start off
@@ -44,7 +50,12 @@ int main(void) {
   TIMSK0 |= _BV(TOIE0);
   OCR0A = 127;
 
-  while(1) {}
+  while(1) {
+    current_tone = TONE_LOW;
+    _delay_us(833);
+    current_tone = TONE_HIGH;
+    _delay_us(833);
+  }
   return 0;
 }
 
@@ -54,6 +65,6 @@ ISR(TIMER0_OVF_vect) {
   // _delay_us(2);
   // PORTD &= ~_BV(PD7);
   // figure out when the next compare should happen by doing a sine table lookup
-  sine_table_pos += TWORD_1200HZ;
+  sine_table_pos += (current_tone == TONE_LOW) ? TWORD_LOW : TWORD_HIGH;
   OCR0A = sine_table[sine_table_pos];
 }
