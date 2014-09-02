@@ -6,6 +6,9 @@
 #define SOUTDDR DDRD
 #define SOUTPORT PORTD
 #define SOUTPIN PD6 // D6
+#define PTTDDR DDRD
+#define PTTPORT PORTD
+#define PTTPIN PD5 // D5
 
 #define TWORD_LOW 5 // LOW=1200Hz; (1200*256)/62500
 #define TWORD_HIGH 9 // HIGH=2200Hz; (2200*256)/62500
@@ -39,6 +42,11 @@ int main(void) {
   // SOUTPORT |= _BV(SOUTPIN);
   SOUTDDR |= _BV(SOUTPIN);
 
+  // set up ptt to be high-z (input, not pullup) to be disabled
+  // to activate ptt, drive low output
+  PTTDDR &= ~_BV(PTTPIN);
+  PTTPORT &= ~_BV(PTTPIN);
+
   PORTD &= ~_BV(PD7);
   DDRD |= _BV(PD7);
 
@@ -51,10 +59,16 @@ int main(void) {
   OCR0A = 127;
 
   while(1) {
+    PTTDDR |= _BV(PTTPIN);
     current_tone = TONE_LOW;
     _delay_us(833);
-    current_tone = TONE_HIGH;
-    _delay_us(833);
+    // current_tone = TONE_HIGH;
+    // _delay_us(833);
+
+    _delay_us(2000);
+    PTTDDR &= ~_BV(PTTPIN);
+    _delay_us(100);
+    PTTDDR |= _BV(PTTPIN);
   }
   return 0;
 }

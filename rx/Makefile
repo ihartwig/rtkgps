@@ -27,6 +27,8 @@
 # make program = Download the hex file to the device, using avrdude.
 #                Please customize the avrdude settings below first!
 #
+# make aprogram PORT=/dev/tty.usbserial######
+#
 # make debug = Start either simulavr or avarice as specified for debugging, 
 #              with avr-gdb or avr-insight as the front end for debugging.
 #
@@ -225,6 +227,9 @@ AVRDUDE_FLAGS += $(AVRDUDE_NO_VERIFY)
 AVRDUDE_FLAGS += $(AVRDUDE_VERBOSE)
 AVRDUDE_FLAGS += $(AVRDUDE_ERASE_COUNTER)
 
+AVRDUDE_A_PORT = /dev/tty.asdf
+AVRDUDE_A_FLAGS = -F -v -c arduino -p $(MCU) -P $(AVRDUDE_A_PORT) -b 57600
+
 
 
 #---------------- Debugging Options ----------------
@@ -362,6 +367,12 @@ gccversion :
 # Program the device.  
 program: $(TARGET).hex $(TARGET).eep
 	$(AVRDUDE) $(AVRDUDE_FLAGS) $(AVRDUDE_WRITE_FLASH) $(AVRDUDE_WRITE_EEPROM)
+
+
+# Program the device without an ISP by using the bootloader
+aprogram: $(TARGET).hex $(TARGET).eep
+	./arduinoReset.py $(AVRDUDE_A_PORT)
+	$(AVRDUDE) $(AVRDUDE_A_FLAGS) $(AVRDUDE_WRITE_FLASH)
 
 
 # Generate avr-gdb config/init file which does the following:
